@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keiei-yujin"
+version = "0.0.1"
+description = "形影遊刃 — a text-first mesher core for FrontISTR (partition, lineage IDs, Gmsh, FrontISTR writer)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "gmsh>=4.15",
+  "build123d>=0.13",   # OpenCascade (OCP) もこれ経由で入る
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "numpy"]
+
+[project.scripts]
+keiei-yujin = "keiei_yujin.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
