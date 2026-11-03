@@ -44,7 +44,11 @@ def check_references(m: Model, settings: MeshSettings, groups: fistr.Groups) -> 
     refs += [(f"groups.surfaces.{sg.name}.side", s) for sg in groups.surfaces for s in (sg.side or [])]
     refs += [(f"groups.nodes.{g}", i) for g, ids in groups.nodes.items() for i in ids]
     problems = []
+    tool_ids = m.tool_ids()
     for where, lid in refs:
+        if lid in tool_ids:
+            problems.append(f"{where}: {lid} は道具のエンティティです（メッシュ設定・グループからは参照できません）")
+            continue
         if lid in m.ids:
             continue
         kids = [k for k in m.ids if k.startswith(lid + ".")]

@@ -4,6 +4,8 @@ Abaqus/CAE 2016 User's Guide 70.4 の一覧を基準に、現状の道具（OCC 
 
 凡例: ◎ 今の仕組みで直接できる ／ ○ 道具を作る生成操作を足せばできる ／ △ 近似か制約付き ／ × 当面やらない
 
+**2026-11-03: ○ の項目は `ops.py` にドラフト実装済み**（`datum_plane` / `extend_face` / `sketch` / `extrude` / `sweep` / `patch` / `project` / `partition` / `split_edge`、`tests/test_ops.py`）。残りは Shortest path（測地線）と Auto-partition、スケッチの曲面投影。
+
 ## セル（ソリッド）の分割
 
 | A/CAE の方法 | 内容 | 対応 | 道具の作り方 |

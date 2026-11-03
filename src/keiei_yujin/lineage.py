@@ -29,6 +29,7 @@ class Model:
     shape: TopoDS_Shape
     ids: dict[str, TopoDS_Shape] = field(default_factory=dict)  # 系譜ID -> 形状
     created_by: dict[str, str] = field(default_factory=dict)  # 系譜ID -> それを生んだ操作ID
+    tools: dict[str, TopoDS_Shape] = field(default_factory=dict)  # 操作ID -> 道具（形状本体には含めない）
 
     # ---- 生成 -------------------------------------------------------------
     @classmethod
@@ -40,15 +41,35 @@ class Model:
                 m.ids[f"{kind}{i}"] = s
         return m
 
-    def id_of(self, s: TopoDS_Shape) -> str | None:
+    def id_of(self, s: TopoDS_Shape, include_tools: bool = False) -> str | None:
+        """形状から系譜IDを引く。形状本体側の ID を優先し、道具の ID は include_tools のときだけ返す。"""
+        tool_ids = self.tool_ids()
+        hit = None
         for k, v in self.ids.items():
             if v.IsSame(s):
-                return k
-        return None
+                if k not in tool_ids:
+                    return k
+                hit = hit or k
+        return hit if include_tools else None
 
     def entities(self, kind: str) -> list[str]:
-        """種別ごとの系譜ID一覧（登録順）。"""
-        return [k for k in self.ids if kind_of(k) == kind]
+        """種別ごとの系譜ID一覧（登録順）。道具のエンティティは含めない。"""
+        return [k for k in self.ids if kind_of(k) == kind and k not in self.tool_ids()]
+
+    def tool_ids(self) -> set[str]:
+        return {k for k, op in self.created_by.items() if op in self.tools}
+
+    # ---- 生成操作（道具） ---------------------------------------------------
+    def add_tool(self, op_id: str, tool: TopoDS_Shape) -> "Model":
+        """道具を登録し、その面・稜線・頂点に操作の子として ID を付ける（D1.F1, K1.E2, ...）。"""
+        new = Model(self.shape, dict(self.ids), dict(self.created_by), dict(self.tools))
+        new.tools[op_id] = tool
+        for kind in ("S", "F", "E", "V"):
+            for i, s in enumerate(explore(tool, kind), 1):
+                lid = f"{op_id}.{kind}{i}"
+                new.ids[lid] = s
+                new.created_by[lid] = op_id
+        return new
 
     # ---- 分割操作 -----------------------------------------------------------
     def partition_plane(self, op_id: str, origin, normal, fuzzy: float = 0.0) -> "Model":
@@ -92,10 +113,14 @@ class Model:
         if not sp.IsDone():
             raise RuntimeError(f"{op_id}: split failed")
         result = sp.Shape()
-        new = Model(result, created_by=dict(self.created_by))
+        new = Model(result, created_by=dict(self.created_by), tools=dict(self.tools))
 
         # 1) 既存エンティティ: そのまま / 割られて子になる / 消える
+        tool_ids = self.tool_ids()
         for pid, s in self.ids.items():
+            if pid in tool_ids:  # 道具は分割の対象ではない。道具由来の新しい面は 2) で操作の子になる
+                new.ids[pid] = s
+                continue
             if sp.IsDeleted(s):
                 continue
             mod = sp.Modified(s)
@@ -103,11 +128,14 @@ class Model:
                 new.ids[pid] = s
                 continue
             pieces = sorted((p for p in mod), key=lambda p: (-side(p), centroid(p)))
+            if len(pieces) == 1:  # 割られていない（刻まれただけ）: ID を保つ
+                new.ids[pid] = pieces[0]
+                continue
             for k, p in enumerate(pieces, 1):
                 new.ids[f"{pid}.{k}"] = p
                 new.created_by[f"{pid}.{k}"] = op_id
 
-        # 2) 分割が生んだエンティティ: 操作の子
+        # 2) 分割が生んだエンティティ: 操作の子（道具の面がそのまま結果に残った場合も、結果側では操作の子として扱う）
         counters = {"F": 0, "E": 0, "V": 0}
         for kind in ("F", "E", "V"):
             for s in explore(result, kind):
@@ -138,15 +166,11 @@ def replay(log: dict) -> Model:
     step = log["step"]
     if sha256_of(step["path"]) != step["sha256"]:
         raise RuntimeError("STEP file changed since the log was written")
+    from . import ops  # 循環 import を避けるためここで
+
     m = Model.from_step(step["path"])
     for op in log.get("ops", []):
-        kind = op["type"]
-        if kind == "plane":
-            m = m.partition_plane(op["id"], op["origin"], op["normal"], op.get("fuzzy", 0.0))
-        elif kind == "cylinder":
-            m = m.partition_cylinder(op["id"], op["origin"], op["axis"], op["radius"], op.get("seam", (1.0, 0.0, 0.0)), op.get("fuzzy", 0.0))
-        else:
-            raise ValueError(f"unknown op type: {kind}")
+        m = ops.apply(m, op)
     return m
 
 
